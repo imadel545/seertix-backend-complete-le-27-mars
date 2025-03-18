@@ -1,8 +1,10 @@
+// routes/adviceRoutes.js
+
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 const {
   getAllAdvice,
-  addAdvice,
+  submitAdviceAndGetRandom,
   getRandomAdvice,
   updateAdvice,
   deleteAdvice,
@@ -28,11 +30,24 @@ const validateAdviceContent = [
   },
 ];
 
-// Routes protégées par un token JWT
+// Route pour récupérer tous les conseils avec informations du propriétaire
 router.get("/", authenticateToken, getAllAdvice);
-router.post("/", authenticateToken, validateAdviceContent, addAdvice);
+
+// Route pour soumettre un conseil et recevoir immédiatement un conseil aléatoire
+router.post(
+  "/",
+  authenticateToken,
+  validateAdviceContent,
+  submitAdviceAndGetRandom
+);
+
+// Route pour récupérer un conseil aléatoire (indépendamment de la soumission immédiate)
 router.get("/random", authenticateToken, getRandomAdvice);
+
+// Route pour modifier un conseil (uniquement par l'auteur)
 router.put("/:id", authenticateToken, validateAdviceContent, updateAdvice);
+
+// Route pour supprimer un conseil (uniquement par l'auteur)
 router.delete("/:id", authenticateToken, deleteAdvice);
 
 module.exports = router;
