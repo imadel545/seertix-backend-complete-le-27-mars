@@ -28,6 +28,8 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "pg": "^8.14.0",
+    "react-hot-toast": "^2.5.2",
+    "react-loading-skeleton": "^3.5.0",
     "swagger-ui-express": "^5.0.1",
     "yamljs": "^0.3.0"
   },
