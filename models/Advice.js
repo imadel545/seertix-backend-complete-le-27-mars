@@ -10,6 +10,7 @@ async function initializeAdviceTable() {
       id SERIAL PRIMARY KEY,
       content TEXT NOT NULL,
       author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      parent_advice_id INT REFERENCES advices(id) ON DELETE CASCADE,
       hash TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -18,7 +19,10 @@ async function initializeAdviceTable() {
     await pool.query(createTableQuery);
     console.log("✅ Table advices initialisée avec succès.");
   } catch (err) {
-    console.error("❌ Erreur lors de l'initialisation de la table advices :", err.message);
+    console.error(
+      "❌ Erreur lors de l'initialisation de la table advices :",
+      err.message
+    );
   }
 }
 
@@ -35,12 +39,13 @@ function generateHash(content) {
 
 const Advice = {
   /**
-   * Crée un nouveau conseil.
+   * Crée un nouveau conseil ou une réponse.
    * @param {string} content - Le contenu du conseil.
    * @param {string} author_id - L'ID de l'auteur.
+   * @param {number|null} parent_advice_id - L'ID du conseil parent.
    * @returns {object} - Le conseil créé.
    */
-  async create(content, author_id) {
+  async create(content, author_id, parent_advice_id = null) {
     if (!content || content.length < 3 || content.length > 300) {
       throw new Error("❌ Le contenu doit être entre 3 et 300 caractères.");
     }
@@ -48,8 +53,8 @@ const Advice = {
     const hash = generateHash(content);
     try {
       const result = await pool.query(
-        "INSERT INTO advices (content, author_id, hash) VALUES ($1, $2, $3) RETURNING *",
-        [content, author_id, hash]
+        "INSERT INTO advices (content, author_id, parent_advice_id, hash) VALUES ($1, $2, $3, $4) RETURNING *",
+        [content, author_id, parent_advice_id, hash]
       );
       return result.rows[0];
     } catch (err) {
@@ -60,7 +65,6 @@ const Advice = {
 
   // Ajout de documentation similaire pour chaque fonction...
   // Par exemple, `getAll()`, `getById()`, `getRandomAdvice()`, `update()`, et `delete()`.
-
 };
 
 module.exports = Advice;

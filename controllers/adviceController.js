@@ -1,9 +1,11 @@
-// controllers/adviceController.js
-
 const { pool } = require("../config/db");
 const crypto = require("crypto");
 
-// Fonction pour générer un hash MD5 à partir d'un contenu donné
+/**
+ * Génère un hash MD5 pour un contenu donné.
+ * @param {string} content
+ * @returns {string}
+ */
 const generateHash = (content) =>
   crypto.createHash("md5").update(content).digest("hex");
 
@@ -14,7 +16,7 @@ const generateHash = (content) =>
 exports.getAllAdvice = async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT a.id, a.content, a.created_at, u.name AS owner_name
+      `SELECT a.id, a.content, a.created_at, a.parent_advice_id, u.name AS owner_name
        FROM advices a
        JOIN users u ON a.author_id = u.id
        ORDER BY a.created_at DESC`
@@ -30,15 +32,54 @@ exports.getAllAdvice = async (req, res) => {
 };
 
 /**
+ * Répondre à un conseil existant.
+ * POST /advice/:id/reply
+ */
+exports.replyToAdvice = async (req, res) => {
+  const { content } = req.body;
+  const parentAdviceId = parseInt(req.params.id, 10);
+  const userId = req.user.userId;
+
+  if (!content || content.trim().length < 3 || content.trim().length > 300) {
+    return res.status(400).json({
+      error: "Le contenu de la réponse doit être entre 3 et 300 caractères.",
+    });
+  }
+
+  try {
+    // Vérifie que le conseil parent existe
+    const { rows: parentRows } = await pool.query(
+      "SELECT id FROM advices WHERE id = $1",
+      [parentAdviceId]
+    );
+    if (parentRows.length === 0) {
+      return res.status(404).json({ error: "Le conseil parent n'existe pas." });
+    }
+
+    // Insère la réponse
+    const { rows } = await pool.query(
+      "INSERT INTO advices (content, author_id, parent_advice_id, hash) VALUES ($1, $2, $3, $4) RETURNING *",
+      [content.trim(), userId, parentAdviceId, generateHash(content)]
+    );
+
+    return res.status(201).json({
+      message: "Réponse ajoutée avec succès.",
+      advice: rows[0],
+    });
+  } catch (error) {
+    console.error("❌ Erreur lors de l'ajout de la réponse :", error.message);
+    return res.status(500).json({ error: "Erreur interne du serveur." });
+  }
+};
+
+/**
  * Soumettre un conseil et récupérer immédiatement un conseil aléatoire d’un autre utilisateur.
  * POST /advice
- * Corps de la requête : { content: string }
  */
 exports.submitAdviceAndGetRandom = async (req, res) => {
   const { content } = req.body;
-  const userId = req.user.userId; // Assurez-vous que le middleware auth définit bien req.user.userId
+  const userId = req.user.userId;
 
-  // Validation du contenu après suppression des espaces inutiles
   if (!content || content.trim().length < 3 || content.trim().length > 300) {
     return res.status(400).json({
       error: "Le contenu du conseil doit être entre 3 et 300 caractères.",
@@ -46,14 +87,12 @@ exports.submitAdviceAndGetRandom = async (req, res) => {
   }
 
   try {
-    // Insertion du conseil dans la colonne author_id
     const { rows: insertedRows } = await pool.query(
       "INSERT INTO advices (content, author_id, hash) VALUES ($1, $2, $3) RETURNING *",
       [content.trim(), userId, generateHash(content)]
     );
     const newAdvice = insertedRows[0];
 
-    // Récupérer un conseil aléatoire soumis par un autre utilisateur
     const { rows: randomRows } = await pool.query(
       `SELECT a.id, a.content, a.created_at, u.name AS owner_name
        FROM advices a
@@ -95,7 +134,6 @@ exports.getRandomAdvice = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // Vérifier que l'utilisateur a soumis au moins un conseil
     const { rows: countRows } = await pool.query(
       "SELECT COUNT(*) AS count FROM advices WHERE author_id = $1",
       [userId]
@@ -106,7 +144,7 @@ exports.getRandomAdvice = async (req, res) => {
           "❌ Vous devez soumettre un conseil avant d'en recevoir un autre.",
       });
     }
-    // Récupérer un conseil aléatoire d’un autre utilisateur avec les informations du propriétaire
+
     const { rows: randomRows } = await pool.query(
       `SELECT a.id, a.content, a.created_at, u.name AS owner_name
        FROM advices a
@@ -116,9 +154,11 @@ exports.getRandomAdvice = async (req, res) => {
        LIMIT 1`,
       [userId]
     );
+
     if (randomRows.length === 0) {
       return res.status(404).json({ error: "Aucun conseil disponible." });
     }
+
     return res.json(randomRows[0]);
   } catch (error) {
     console.error(
@@ -145,7 +185,6 @@ exports.updateAdvice = async (req, res) => {
   }
 
   try {
-    // Vérifier que le conseil existe et appartient à l'utilisateur
     const { rows } = await pool.query(
       "SELECT * FROM advices WHERE id = $1 AND author_id = $2",
       [id, userId]
@@ -155,7 +194,7 @@ exports.updateAdvice = async (req, res) => {
         error: "❌ Vous n'êtes pas autorisé à modifier ce conseil.",
       });
     }
-    // Mettre à jour le conseil
+
     const { rows: updatedRows } = await pool.query(
       "UPDATE advices SET content = $1 WHERE id = $2 RETURNING *",
       [content.trim(), id]
@@ -182,7 +221,6 @@ exports.deleteAdvice = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // Vérifier que le conseil existe et appartient à l'utilisateur
     const { rows } = await pool.query(
       "SELECT * FROM advices WHERE id = $1 AND author_id = $2",
       [id, userId]
@@ -192,7 +230,7 @@ exports.deleteAdvice = async (req, res) => {
         .status(403)
         .json({ error: "❌ Vous n'êtes pas autorisé à supprimer ce conseil." });
     }
-    // Supprimer le conseil
+
     await pool.query("DELETE FROM advices WHERE id = $1", [id]);
     return res.json({ message: "✅ Conseil supprimé avec succès." });
   } catch (error) {
@@ -208,6 +246,7 @@ module.exports = {
   getAllAdvice: exports.getAllAdvice,
   submitAdviceAndGetRandom: exports.submitAdviceAndGetRandom,
   getRandomAdvice: exports.getRandomAdvice,
+  replyToAdvice: exports.replyToAdvice,
   updateAdvice: exports.updateAdvice,
   deleteAdvice: exports.deleteAdvice,
 };
