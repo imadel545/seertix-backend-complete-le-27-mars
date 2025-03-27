@@ -8,15 +8,16 @@ const rateLimit = require("express-rate-limit");
 const swaggerUi = require("swagger-ui-express");
 const swaggerDocument = require("./config/swagger.json");
 const { connectDB } = require("./config/db");
+require("express-async-errors"); // ✅ Gestion des erreurs async
+
+// 🔁 Routes
 const authRoutes = require("./routes/authRoutes");
 const adviceRoutes = require("./routes/adviceRoutes");
 const commentRoutes = require("./routes/commentRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const userRoutes = require("./routes/userRoutes");
 
-// Importation pour la gestion des erreurs async
-require("express-async-errors");
-
-// Intégration de Socket.io
+// 🔌 Socket.io
 const http = require("http");
 const socketIo = require("socket.io");
 const socketHandler = require("./sockets");
@@ -24,7 +25,7 @@ const socketHandler = require("./sockets");
 const app = express();
 const port = process.env.PORT || 5050;
 
-// Création du serveur HTTP et instance Socket.io
+// ✅ Serveur HTTP + WebSocket
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -35,16 +36,16 @@ const io = socketIo(server, {
 app.set("io", io);
 socketHandler(io);
 
-// Vérification des variables d'environnement essentielles
+// 🔒 Vérifie les variables d'environnement
 if (!process.env.DATABASE_URL) {
-  console.error("❌ DATABASE_URL non défini. Vérifiez votre fichier .env.");
+  console.error("❌ DATABASE_URL manquante dans .env !");
   process.exit(1);
 }
 
-// Sécurisation des en-têtes HTTP
+// 🔐 Sécurité HTTP de base
 app.use(helmet());
 
-// Configuration du CORS avec liste blanche
+// ✅ Gestion du CORS (accès frontend)
 const allowedOrigins = [process.env.FRONTEND_URL || "http://localhost:3000"];
 app.use(
   cors({
@@ -59,59 +60,62 @@ app.use(
   })
 );
 
-// Gestion des erreurs JSON mal formées
+// ✅ Parse JSON + gestion des erreurs JSON
 app.use(express.json(), (err, req, res, next) => {
   if (err instanceof SyntaxError) {
-    return res.status(400).json({ error: "❌ Requête JSON invalide." });
+    return res.status(400).json({ error: "❌ JSON mal formé." });
   }
   next();
 });
 
-// Compression des réponses HTTP
+// 📦 Compression & Logs
 app.use(compression());
+app.use(morgan("dev")); // "combined" si tu veux plus de détails
 
-// Journalisation avancée des requêtes HTTP
-app.use(morgan("combined"));
-
-// Limitation du nombre de requêtes pour prévenir les abus
+// 🔐 Limite les tentatives brutales (DDOS)
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { error: "⏳ Trop de requêtes. Réessayez plus tard." },
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // max 100 requêtes / fenêtre
+  message: { error: "⏳ Trop de requêtes, réessayez plus tard." },
 });
 app.use("/auth", limiter);
 
-// Configuration des routes principales
+// ✅ Routes principales
 app.use("/auth", authRoutes);
 app.use("/advice", adviceRoutes);
 app.use("/comment", commentRoutes);
 app.use("/notifications", notificationRoutes);
+app.use("/user", userRoutes);
 
-// Documentation de l'API avec Swagger
+// 🔍 Swagger
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Gestion des routes non définies
+// ✅ Route racine (optionnelle)
+app.get("/", (req, res) => {
+  res.send("✅ API Seertix en ligne !");
+});
+
+// 🛑 404 : route inconnue
 app.use((req, res) => {
   res.status(404).json({ error: "❌ Ressource non trouvée." });
 });
 
-// Gestion des erreurs globales
+// 🧨 Gestion globale des erreurs serveur
 app.use((err, req, res, next) => {
-  console.error("❌ Erreur interne :", err);
+  console.error("🔥 Erreur interne :", err);
   res.status(500).json({ error: "Erreur interne du serveur." });
 });
 
-// Connexion à la base de données et démarrage du serveur
+// ✅ Connexion DB + lancement serveur
 connectDB()
   .then(() => {
     server.listen(port, () => {
-      console.log(`🚀 Serveur en ligne sur http://localhost:${port}`);
-      console.log(
-        `📄 Documentation API disponible sur http://localhost:${port}/api-docs`
-      );
+      console.log("\n✅ PostgreSQL connecté avec succès.");
+      console.log(`🚀 Serveur en ligne : http://localhost:${port}`);
+      console.log(`📄 Swagger dispo : http://localhost:${port}/api-docs\n`);
     });
   })
   .catch((err) => {
-    console.error("❌ Échec de la connexion à la base de données :", err);
+    console.error("❌ Échec connexion DB :", err);
     process.exit(1);
   });

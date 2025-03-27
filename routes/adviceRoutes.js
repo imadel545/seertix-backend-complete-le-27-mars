@@ -1,26 +1,24 @@
-// routes/adviceRoutes.js
-
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 const {
   getAllAdvice,
+  getAdviceById,
   submitAdviceAndGetRandom,
   getRandomAdvice,
+  replyToAdvice,
   updateAdvice,
   deleteAdvice,
 } = require("../controllers/adviceController");
-const authenticateToken = require("../middlewares/authMiddleware");
+const { authenticateToken } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-// Middleware pour valider le contenu des conseils
+// Middleware de validation du contenu d’un conseil
 const validateAdviceContent = [
   body("content")
     .trim()
-    .isLength({ min: 5 })
-    .withMessage("Le contenu du conseil doit contenir au moins 5 caractères.")
-    .isLength({ max: 300 })
-    .withMessage("Le contenu du conseil ne doit pas dépasser 300 caractères."),
+    .isLength({ min: 3, max: 300 })
+    .withMessage("Le contenu du conseil doit être entre 3 et 300 caractères."),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -30,10 +28,13 @@ const validateAdviceContent = [
   },
 ];
 
-// Route pour récupérer tous les conseils avec informations du propriétaire
+// ✅ IMPORTANT : cette route doit être avant "/:id"
+router.get("/random", authenticateToken, getRandomAdvice);
+
+// Récupérer tous les conseils
 router.get("/", authenticateToken, getAllAdvice);
 
-// Route pour soumettre un conseil et recevoir immédiatement un conseil aléatoire
+// Soumettre un conseil
 router.post(
   "/",
   authenticateToken,
@@ -41,13 +42,21 @@ router.post(
   submitAdviceAndGetRandom
 );
 
-// Route pour récupérer un conseil aléatoire (indépendamment de la soumission immédiate)
-router.get("/random", authenticateToken, getRandomAdvice);
+// Répondre à un conseil
+router.post(
+  "/:id/reply",
+  authenticateToken,
+  validateAdviceContent,
+  replyToAdvice
+);
 
-// Route pour modifier un conseil (uniquement par l'auteur)
+// Modifier un conseil
 router.put("/:id", authenticateToken, validateAdviceContent, updateAdvice);
 
-// Route pour supprimer un conseil (uniquement par l'auteur)
+// Supprimer un conseil
 router.delete("/:id", authenticateToken, deleteAdvice);
+
+// Dernière : récupérer un conseil par ID
+router.get("/:id", authenticateToken, getAdviceById);
 
 module.exports = router;

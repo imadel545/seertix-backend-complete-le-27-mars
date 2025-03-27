@@ -13,8 +13,8 @@ const Comment = {
     return rows[0];
   },
 
-  // Récupérer tous les commentaires d'une publication avec nombre de likes
-  async findByAdviceId(adviceId) {
+  // Récupérer tous les commentaires d'une publication avec nombre de likes et like par utilisateur
+  async findByAdviceId(adviceId, userId) {
     const query = `
       SELECT 
         c.id, 
@@ -23,7 +23,8 @@ const Comment = {
         c.user_id, 
         u.name AS user_name, 
         c.parent_comment_id,
-        COUNT(cl.comment_id) AS likes
+        COUNT(cl.comment_id) AS like_count,
+        BOOL_OR(cl.user_id = $2) AS liked_by_current_user
       FROM comments c
       JOIN users u ON c.user_id = u.id
       LEFT JOIN comment_likes cl ON c.id = cl.comment_id
@@ -31,8 +32,12 @@ const Comment = {
       GROUP BY c.id, u.name
       ORDER BY c.created_at ASC;
     `;
-    const { rows } = await pool.query(query, [adviceId]);
-    return rows;
+    const { rows } = await pool.query(query, [adviceId, userId]);
+    return rows.map((row) => ({
+      ...row,
+      like_count: parseInt(row.like_count, 10),
+      liked_by_current_user: row.liked_by_current_user ?? false,
+    }));
   },
 
   // Récupérer un commentaire spécifique

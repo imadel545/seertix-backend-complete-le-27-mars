@@ -1,64 +1,65 @@
+// models/CommentLike.js
 const { pool } = require("../config/db");
 
-const Comment = {
-  // Ajouter un commentaire
-  async create(content, adviceId, userId, parentCommentId = null) {
-    const query = `
-      INSERT INTO comments (content, advice_id, user_id, parent_comment_id)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *;
-    `;
-    const values = [content, adviceId, userId, parentCommentId];
-    const { rows } = await pool.query(query, values);
-    return rows[0];
-  },
+class CommentLikeModel {
+  /**
+   * Ajouter un like à un commentaire.
+   * @param {number} commentId
+   * @param {string} userId
+   */
+  async like(commentId, userId) {
+    await pool.query(
+      `INSERT INTO comment_likes (comment_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [commentId, userId]
+    );
+    return { message: "Commentaire liké." };
+  }
 
-  // Récupérer tous les commentaires d'une publication
-  async findByAdviceId(adviceId) {
-    const query = `
-      SELECT c.id, c.content, c.created_at, c.user_id, u.name AS user_name, c.parent_comment_id
-      FROM comments c
-      JOIN users u ON c.user_id = u.id
-      WHERE c.advice_id = $1
-      ORDER BY c.created_at ASC;
-    `;
-    const { rows } = await pool.query(query, [adviceId]);
-    return rows;
-  },
+  /**
+   * Retirer un like d’un commentaire.
+   * @param {number} commentId
+   * @param {string} userId
+   */
+  async unlike(commentId, userId) {
+    await pool.query(
+      `DELETE FROM comment_likes
+       WHERE comment_id = $1 AND user_id = $2`,
+      [commentId, userId]
+    );
+    return { message: "Like retiré du commentaire." };
+  }
 
-  // Récupérer un commentaire spécifique
-  async findById(commentId) {
-    const query = `
-      SELECT * FROM comments WHERE id = $1;
-    `;
-    const { rows } = await pool.query(query, [commentId]);
-    return rows[0];
-  },
+  /**
+   * Compter le nombre total de likes d’un commentaire.
+   * @param {number} commentId
+   */
+  async countLikes(commentId) {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS likes
+       FROM comment_likes
+       WHERE comment_id = $1`,
+      [commentId]
+    );
+    return parseInt(rows[0].likes, 10);
+  }
 
-  // Mettre à jour un commentaire
-  async update(commentId, userId, newContent) {
-    const query = `
-      UPDATE comments
-      SET content = $1
-      WHERE id = $2 AND user_id = $3
-      RETURNING *;
-    `;
-    const values = [newContent, commentId, userId];
-    const { rows } = await pool.query(query, values);
-    return rows[0];
-  },
+  /**
+   * Vérifie si un utilisateur a liké un commentaire.
+   * @param {number} commentId
+   * @param {string} userId
+   * @returns {boolean}
+   */
+  async hasLiked(commentId, userId) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM comment_likes
+       WHERE comment_id = $1 AND user_id = $2
+       LIMIT 1`,
+      [commentId, userId]
+    );
+    return rows.length > 0;
+  }
+}
 
-  // Supprimer un commentaire
-  async delete(commentId, userId) {
-    const query = `
-      DELETE FROM comments
-      WHERE id = $1 AND user_id = $2
-      RETURNING *;
-    `;
-    const values = [commentId, userId];
-    const { rows } = await pool.query(query, values);
-    return rows[0];
-  },
-};
-
-module.exports = Comment;
+module.exports = new CommentLikeModel();

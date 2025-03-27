@@ -1,42 +1,76 @@
 const jwt = require("jsonwebtoken");
-const logger = require("../utils/logger"); // Import complet du logger
+const logger = require("../utils/logger");
 const { isTokenRevoked } = require("../services/tokenService");
 
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader) {
-    logger.warn("No authorization header provided");
-    return res
-      .status(401)
-      .json({ error: "Access denied, no authorization header" });
-  }
+const JWT_SECRET = process.env.JWT_SECRET;
 
-  const [scheme, token] = authHeader.split(" ");
-  if (scheme !== "Bearer" || !token) {
-    logger.warn("Invalid token format");
-    return res
-      .status(401)
-      .json({ error: "Access denied, invalid token format" });
-  }
+/**
+ * Fonction utilitaire pour vérifier et décoder un token JWT.
+ * @param {string} token
+ * @returns {object|null} Payload utilisateur ou null si invalide.
+ */
+const verifyToken = async (token) => {
+  try {
+    if (!token || typeof token !== "string") return null;
 
-  // Vérifier si le token a été révoqué
-  if (await isTokenRevoked(token)) {
-    logger.warn("Token is revoked");
-    return res.status(403).json({ error: "Invalid or revoked token" });
-  }
-
-  // Vérification du token
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      logger.error("Token verification failed", { error: err });
-      return res.status(403).json({ error: "Invalid or expired token" });
+    if (await isTokenRevoked(token)) {
+      logger.warn("❌ Token révoqué");
+      return null;
     }
 
-    // Attacher le payload décodé à la requête
-    req.user = user;
-    logger.info("User authenticated", { userId: user.userId });
-    next();
-  });
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded;
+  } catch (err) {
+    logger.error("❌ Échec vérification JWT", { error: err.message });
+    return null;
+  }
 };
 
-module.exports = authenticateToken;
+/**
+ * Middleware Express standard pour les routes HTTP.
+ */
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Accès refusé, token manquant" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const user = await verifyToken(token);
+
+  if (!user) {
+    return res.status(403).json({ error: "Token invalide ou expiré" });
+  }
+
+  req.user = user;
+  next();
+};
+
+/**
+ * Middleware Socket.io pour authentifier les connexions en temps réel.
+ */
+const authenticateSocket = async (socket, next) => {
+  const token = socket.handshake.auth?.token;
+
+  if (!token) {
+    logger.warn("🔐 Connexion socket sans token !");
+    return next(new Error("Token requis pour la connexion socket"));
+  }
+
+  const user = await verifyToken(token);
+
+  if (!user) {
+    return next(new Error("Token invalide ou expiré"));
+  }
+
+  socket.user = user; // attaché à socket
+  logger.info("🔐 Utilisateur connecté via Socket", { userId: user.userId });
+  next();
+};
+
+module.exports = {
+  authenticateToken,
+  authenticateSocket,
+  verifyToken,
+};

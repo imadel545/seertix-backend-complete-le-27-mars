@@ -1,5 +1,5 @@
-const Comment = require("../models/Comment");
-const { pool } = require("../config/db");
+// controllers/commentController.js
+const commentService = require("../services/commentService");
 
 /**
  * Récupérer tous les commentaires d’un conseil.
@@ -7,71 +7,71 @@ const { pool } = require("../config/db");
  */
 exports.getCommentsByAdviceId = async (req, res) => {
   const { adviceId } = req.params;
+  const userId = req.user.userId;
 
   try {
-    const comments = await Comment.findByAdviceId(adviceId);
-    res.json(comments);
-  } catch (error) {
-    console.error(
-      "❌ Erreur lors de la récupération des commentaires :",
-      error.message
+    const comments = await commentService.getCommentsByAdviceId(
+      adviceId,
+      userId
     );
+    res.json(comments);
+  } catch (err) {
+    console.error("❌ Erreur récupération commentaires :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
 
 /**
- * Ajouter un nouveau commentaire ou une réponse.
+ * Ajouter un commentaire ou une réponse.
  * POST /comments
  */
 exports.addComment = async (req, res) => {
   const { content, adviceId, parentCommentId } = req.body;
   const userId = req.user.userId;
-
-  if (!content || content.trim().length < 1) {
-    return res.status(400).json({ error: "Le contenu ne peut pas être vide." });
-  }
+  const io = req.app.get("io");
 
   try {
-    const newComment = await Comment.create(
+    const newComment = await commentService.addComment(
       content,
       adviceId,
       userId,
       parentCommentId
     );
+    io.to(`advice_${adviceId}`).emit("comment:new", newComment);
     res.status(201).json(newComment);
-  } catch (error) {
-    console.error("❌ Erreur lors de l'ajout du commentaire :", error.message);
+  } catch (err) {
+    console.error("❌ Erreur ajout commentaire :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
 
 /**
- * Mettre à jour un commentaire.
+ * Modifier un commentaire.
  * PUT /comments/:id
  */
 exports.updateComment = async (req, res) => {
   const { id } = req.params;
   const { content } = req.body;
   const userId = req.user.userId;
-
-  if (!content || content.trim().length < 1) {
-    return res.status(400).json({ error: "Le contenu ne peut pas être vide." });
-  }
+  const io = req.app.get("io");
 
   try {
-    const updatedComment = await Comment.update(id, userId, content);
-    if (!updatedComment) {
-      return res
-        .status(404)
-        .json({ error: "Commentaire non trouvé ou non autorisé." });
-    }
-    res.json(updatedComment);
-  } catch (error) {
-    console.error(
-      "❌ Erreur lors de la mise à jour du commentaire :",
-      error.message
+    const updatedComment = await commentService.updateComment(
+      id,
+      userId,
+      content
     );
+    if (!updatedComment) {
+      return res.status(403).json({ error: "Modification non autorisée." });
+    }
+
+    io.to(`advice_${updatedComment.advice_id}`).emit(
+      "comment:update",
+      updatedComment
+    );
+    res.json(updatedComment);
+  } catch (err) {
+    console.error("❌ Erreur update commentaire :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
@@ -83,20 +83,20 @@ exports.updateComment = async (req, res) => {
 exports.deleteComment = async (req, res) => {
   const { id } = req.params;
   const userId = req.user.userId;
+  const io = req.app.get("io");
 
   try {
-    const deletedComment = await Comment.delete(id, userId);
+    const deletedComment = await commentService.deleteComment(id, userId);
     if (!deletedComment) {
-      return res
-        .status(404)
-        .json({ error: "Commentaire non trouvé ou non autorisé." });
+      return res.status(403).json({ error: "Suppression non autorisée." });
     }
+
+    io.to(`advice_${deletedComment.advice_id}`).emit("comment:delete", {
+      commentId: deletedComment.id,
+    });
     res.json({ message: "Commentaire supprimé avec succès." });
-  } catch (error) {
-    console.error(
-      "❌ Erreur lors de la suppression du commentaire :",
-      error.message
-    );
+  } catch (err) {
+    console.error("❌ Erreur suppression commentaire :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
@@ -110,13 +110,10 @@ exports.likeComment = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    await pool.query(
-      "INSERT INTO comment_likes (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      [id, userId]
-    );
-    res.status(200).json({ message: "Commentaire liké." });
-  } catch (error) {
-    console.error("❌ Erreur lors du like du commentaire :", error.message);
+    const result = await commentService.likeComment(id, userId);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("❌ Erreur like commentaire :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
@@ -130,35 +127,26 @@ exports.unlikeComment = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    await pool.query(
-      "DELETE FROM comment_likes WHERE comment_id = $1 AND user_id = $2",
-      [id, userId]
-    );
-    res.status(200).json({ message: "Like retiré du commentaire." });
-  } catch (error) {
-    console.error("❌ Erreur lors du retrait du like :", error.message);
+    const result = await commentService.unlikeComment(id, userId);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("❌ Erreur unlike commentaire :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };
 
 /**
- * Récupérer le nombre de likes d’un commentaire.
+ * Nombre de likes.
  * GET /comments/:id/likes
  */
 exports.getCommentLikes = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { rows } = await pool.query(
-      "SELECT COUNT(*) AS likes FROM comment_likes WHERE comment_id = $1",
-      [id]
-    );
-    res.json({ likes: parseInt(rows[0].likes, 10) });
-  } catch (error) {
-    console.error(
-      "❌ Erreur lors de la récupération des likes :",
-      error.message
-    );
+    const likes = await commentService.getCommentLikes(id);
+    res.json({ likes });
+  } catch (err) {
+    console.error("❌ Erreur récupération likes :", err.message);
     res.status(500).json({ error: "Erreur interne du serveur." });
   }
 };

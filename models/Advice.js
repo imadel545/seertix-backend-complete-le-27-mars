@@ -1,70 +1,112 @@
-const pool = require("../config/db");
+const { pool } = require("../config/db");
 const crypto = require("crypto");
 
-/**
- * Initialise la table des conseils si elle n'existe pas, et ajoute des colonnes manquantes si nécessaire.
- */
-async function initializeAdviceTable() {
-  const createTableQuery = `
-    CREATE TABLE IF NOT EXISTS advices (
-      id SERIAL PRIMARY KEY,
-      content TEXT NOT NULL,
-      author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      parent_advice_id INT REFERENCES advices(id) ON DELETE CASCADE,
-      hash TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+class AdviceModel {
+  constructor() {
+    this.initializeTable();
+  }
+
+  async initializeTable() {
+    const query = `
+      CREATE TABLE IF NOT EXISTS advices (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        parent_advice_id INT REFERENCES advices(id) ON DELETE CASCADE,
+        hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+    try {
+      await pool.query(query);
+      console.log("✅ Table advices initialisée avec succès.");
+    } catch (err) {
+      console.error("❌ Erreur init table advices :", err.message);
+    }
+  }
+
+  static generateHash(content) {
+    return crypto.createHash("md5").update(content).digest("hex");
+  }
+
+  async create(content, author_id, parent_advice_id = null) {
+    const hash = AdviceModel.generateHash(content);
+
+    const query = `
+      INSERT INTO advices (content, author_id, parent_advice_id, hash)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `;
+    const values = [content, author_id, parent_advice_id, hash];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  async getAll() {
+    const query = `
+      SELECT a.id, a.content, a.created_at, a.parent_advice_id, u.name AS owner_name
+      FROM advices a
+      JOIN users u ON a.author_id = u.id
+      ORDER BY a.created_at DESC
+    `;
+    const result = await pool.query(query);
+    return result.rows;
+  }
+
+  async getById(id) {
+    const query = `
+      SELECT a.id, a.content, a.created_at, a.author_id,
+             u.name AS author_name, u.email AS author_email, u.created_at AS author_created_at
+      FROM advices a
+      JOIN users u ON a.author_id = u.id
+      WHERE a.id = $1
+    `;
+    const result = await pool.query(query, [id]);
+    return result.rows[0] || null;
+  }
+
+  async getUserAdviceCount(userId) {
+    const result = await pool.query(
+      `SELECT COUNT(*) AS count FROM advices WHERE author_id = $1`,
+      [userId]
     );
-  `;
-  try {
-    await pool.query(createTableQuery);
-    console.log("✅ Table advices initialisée avec succès.");
-  } catch (err) {
-    console.error(
-      "❌ Erreur lors de l'initialisation de la table advices :",
-      err.message
+    return parseInt(result.rows[0]?.count || "0", 10);
+  }
+
+  async getRandomAdvice(excludeUserId) {
+    const result = await pool.query(
+      `SELECT a.id, a.content, a.created_at, u.name AS owner_name
+       FROM advices a
+       JOIN users u ON a.author_id = u.id
+       WHERE a.author_id != $1
+       ORDER BY RANDOM()
+       LIMIT 1`,
+      [excludeUserId]
     );
+    return result.rows[0] || null;
+  }
+
+  async update(id, userId, content) {
+    const result = await pool.query(
+      `UPDATE advices SET content = $1
+       WHERE id = $2 AND author_id = $3
+       RETURNING *`,
+      [content.trim(), id, userId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async delete(id, userId) {
+    const check = await pool.query(
+      `SELECT id FROM advices WHERE id = $1 AND author_id = $2`,
+      [id, userId]
+    );
+    if (check.rows.length === 0) return null;
+
+    await pool.query(`DELETE FROM advices WHERE id = $1`, [id]);
+    return { message: "✅ Conseil supprimé." };
   }
 }
 
-initializeAdviceTable().catch(console.error);
-
-/**
- * Génère un hash MD5 unique pour un contenu donné.
- * @param {string} content - Le contenu à hacher.
- * @returns {string} - Le hash MD5.
- */
-function generateHash(content) {
-  return crypto.createHash("md5").update(content).digest("hex");
-}
-
-const Advice = {
-  /**
-   * Crée un nouveau conseil ou une réponse.
-   * @param {string} content - Le contenu du conseil.
-   * @param {string} author_id - L'ID de l'auteur.
-   * @param {number|null} parent_advice_id - L'ID du conseil parent.
-   * @returns {object} - Le conseil créé.
-   */
-  async create(content, author_id, parent_advice_id = null) {
-    if (!content || content.length < 3 || content.length > 300) {
-      throw new Error("❌ Le contenu doit être entre 3 et 300 caractères.");
-    }
-
-    const hash = generateHash(content);
-    try {
-      const result = await pool.query(
-        "INSERT INTO advices (content, author_id, parent_advice_id, hash) VALUES ($1, $2, $3, $4) RETURNING *",
-        [content, author_id, parent_advice_id, hash]
-      );
-      return result.rows[0];
-    } catch (err) {
-      console.error("❌ Erreur lors de la création du conseil :", err.message);
-      throw new Error("Erreur lors de la création du conseil.");
-    }
-  },
-
-  // Ajout de documentation similaire pour chaque fonction...
-  // Par exemple, `getAll()`, `getById()`, `getRandomAdvice()`, `update()`, et `delete()`.
-};
-
-module.exports = Advice;
+module.exports = new AdviceModel();

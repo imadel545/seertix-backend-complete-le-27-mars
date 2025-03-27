@@ -9,11 +9,11 @@ const {
   unlikeComment,
   getCommentLikes,
 } = require("../controllers/commentController");
-const authenticateToken = require("../middlewares/authMiddleware");
+const { authenticateToken } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-// Middleware pour valider le contenu des commentaires
+// ✅ Validation du contenu des commentaires
 const validateCommentContent = [
   body("content")
     .trim()
@@ -28,15 +28,15 @@ const validateCommentContent = [
   },
 ];
 
-// Routes pour la gestion des commentaires
+// ✅ Routes
 router.get("/:adviceId", authenticateToken, getCommentsByAdviceId);
 router.post("/", authenticateToken, validateCommentContent, addComment);
 router.put("/:id", authenticateToken, validateCommentContent, updateComment);
 router.delete("/:id", authenticateToken, deleteComment);
 
-// Routes pour les likes de commentaires
+// ✅ Gestion des likes
 router.post("/:id/like", authenticateToken, likeComment);
-router.post("/:id/unlike", authenticateToken, unlikeComment);
+router.delete("/:id/unlike", authenticateToken, unlikeComment);
 router.get("/:id/likes", authenticateToken, getCommentLikes);
 
 module.exports = router;
